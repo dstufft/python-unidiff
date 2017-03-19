@@ -33,6 +33,9 @@ RE_SOURCE_FILENAME = re.compile(
     r'^--- (?P<filename>[^\t\n]+)(?:\t(?P<timestamp>[^\n]+))?')
 RE_TARGET_FILENAME = re.compile(
     r'^\+\+\+ (?P<filename>[^\t\n]+)(?:\t(?P<timestamp>[^\n]+))?')
+RE_GIT_HEADER = re.compile(
+    r'^diff --git (?P<source_filename>[^\t\n]+)'
+    r'\s+(?P<target_filename>[^\t\n]+)')
 
 # @@ (source offset, length) (target offset, length) @@ (section header)
 RE_HUNK_HEADER = re.compile(
@@ -45,6 +48,9 @@ RE_HUNK_HEADER = re.compile(
 # \  No newline case
 RE_HUNK_BODY_LINE = re.compile(
     r'^(?P<line_type>[- \n\+\\])(?P<value>.*)', re.DOTALL)
+
+# new file mode (file mode)
+RE_NEW_FILE_MODE = re.compile(r"^new file mode \d+$")
 
 RE_NO_NEWLINE_MARKER = re.compile(r'^\\ No newline at end of file')
 

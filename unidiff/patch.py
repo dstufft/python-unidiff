@@ -42,6 +42,8 @@ from unidiff.constants import (
     RE_SOURCE_FILENAME,
     RE_TARGET_FILENAME,
     RE_NO_NEWLINE_MARKER,
+    RE_GIT_HEADER,
+    RE_NEW_FILE_MODE,
 )
 from unidiff.errors import UnidiffParseError
 
@@ -174,6 +176,19 @@ class PatchedFile(list):
         self.source_timestamp = source_timestamp
         self.target_file = target
         self.target_timestamp = target_timestamp
+        self._new_file = None
+
+    def __eq__(self, other):
+        if not isinstance(other, PatchedFile):
+            return NotImplemented
+
+        return self.path == other.path
+
+    def __ne__(self, other):
+        if not isinstance(other, PatchedFile):
+            return NotImplemented
+
+        return self.path != other.path
 
     def __repr__(self):
         return make_str("<PatchedFile: %s>") % make_str(self.path)
@@ -234,6 +249,9 @@ class PatchedFile(list):
 
         self.append(hunk)
 
+    def _parse_new_file_mode(self, line, diff, encoding):
+        self._new_file = True
+
     def _add_no_newline_marker_to_last_hunk(self):
         if not self:
             raise UnidiffParseError(
@@ -271,8 +289,9 @@ class PatchedFile(list):
     @property
     def is_added_file(self):
         """Return True if this patch adds the file."""
-        return (len(self) == 1 and self[0].source_start == 0 and
-                self[0].source_length == 0)
+        return ((len(self) == 1 and self[0].source_start == 0 and
+                self[0].source_length == 0) or
+                (self._new_file is not None and self._new_file))
 
     @property
     def is_removed_file(self):
@@ -310,6 +329,23 @@ class PatchSet(list):
         for unused_diff_line_no, line in diff:
             if encoding is not None:
                 line = line.decode(encoding)
+            # check for git diff header
+            is_git_header = RE_GIT_HEADER.match(line)
+            if is_git_header:
+                source_file = is_git_header.group('source_filename')
+                source_timestamp = None
+
+                target_file = is_git_header.group('target_filename')
+                target_timestamp = None
+
+                # add current file to PatchSet
+                current_file = PatchedFile(source_file, target_file,
+                                           source_timestamp, target_timestamp)
+                if current_file in self:
+                    current_file = self[self.index(current_file)]
+                else:
+                    self.append(current_file)
+                continue
             # check for source file header
             is_source_filename = RE_SOURCE_FILENAME.match(line)
             if is_source_filename:
@@ -329,7 +365,10 @@ class PatchSet(list):
                 # add current file to PatchSet
                 current_file = PatchedFile(source_file, target_file,
                                            source_timestamp, target_timestamp)
-                self.append(current_file)
+                if current_file in self:
+                    current_file = self[self.index(current_file)]
+                else:
+                    self.append(current_file)
                 continue
 
             # check for hunk header
@@ -345,6 +384,14 @@ class PatchSet(list):
                 if current_file is None:
                     raise UnidiffParseError('Unexpected marker: %s' % line)
                 current_file._add_no_newline_marker_to_last_hunk()
+
+            # check for new file mode
+            is_new_file = RE_NEW_FILE_MODE.match(line)
+            if is_new_file:
+                if current_file is None:
+                    raise UnidiffParseError(
+                        'Unexpected new file found: %s' % line)
+                current_file._parse_new_file_mode(line, diff, encoding)
 
     @classmethod
     def from_filename(cls, filename, encoding=DEFAULT_ENCODING, errors=None):
